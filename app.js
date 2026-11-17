@@ -94,9 +94,13 @@ const gSearch = s => `https://www.google.com/search?q=${encodeURIComponent(s.nam
 
 // ---------- 一覧 ----------
 function filtered() {
-  const q = st.q.trim();
-  return SPOTS.filter(s =>
-    (!q || (s.name + s.kana + s.short + s.people.join('')).includes(q)) &&
+  const norm = t => String(t).toLowerCase().replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/[\s　・（）()]/g, '');
+  const words = norm(st.q).length ? st.q.trim().split(/[\s　]+/).map(norm).filter(Boolean) : [];
+  return SPOTS.filter(s => {
+    if (!words.length) return true;
+    if (!s._q) s._q = norm([s.name, s.kana, s.short, s.area, s.genres.join(''), s.era || '', ...s.people, ...s.people.map(p => PEOPLE[p] || '')].join(' '));
+    return words.every(w => s._q.includes(w));
+  }).filter(s =>
     (!st.genres.length || s.genres.some(g => st.genres.includes(g))) &&
     (!st.area || s.area === st.area) &&
     (!st.era || s.era === st.era) &&
@@ -143,7 +147,7 @@ function viewList() {
   return `
   <header class="top"><h1>京都 ゆかりマップ</h1><p>行った場所から、つながる次の場所へ</p></header>
   <div class="controls">
-    <input type="search" data-bind="q" placeholder="名前・人物でさがす" value="${esc(st.q)}">
+    <input type="search" data-bind="q" placeholder="名前・人物・よみがな（例：りょうま、紅葉 寺）" value="${esc(st.q)}">
     <div class="row"><label class="lbl">並び替え</label>
       <div class="seg">${[['era','時代'],['person','人物'],['name','名前'],['area','地域'],['genre','ジャンル'],['near','近い順']].map(([k, l]) => `<button class="${st.sort === k ? 'on' : ''}" data-act="sort" data-k="${k}">${l}</button>`).join('')}</div>
     </div>
@@ -154,11 +158,11 @@ function viewList() {
       ${sel('season', ['春','夏','秋','冬'].map(x => [x, x + 'の見どころ']), 'すべての季節')}
       ${sel('person', Object.keys(PEOPLE).map(p => [p, p]), 'すべての人物')}
     </div>
-    ${(st.hiddenOnly || st.genres.length || st.area || st.era || st.season || st.person || st.q) ? `<button class="link" data-act="clear">絞り込みを解除（${list.length}件）</button>` : `<div class="count">${list.length}件</div>`}
+    <div id="qcount">${(st.hiddenOnly || st.genres.length || st.area || st.era || st.season || st.person || st.q) ? `<button class="link" data-act="clear">絞り込みを解除（${list.length}件）</button>` : `<div class="count">${list.length}件</div>`}</div>
   </div>
   <div class="seg view-toggle"><button class="${st.listMode === 'cards' ? 'on' : ''}" data-act="listmode" data-k="cards">一覧で見る</button><button class="${st.listMode === 'map' ? 'on' : ''}" data-act="listmode" data-k="map">地図で見る</button></div>
-  ${st.listMode === 'map' ? (list.length ? mapBlock(list.map(s => ({...s, label: s.name})), []) : '<p class="empty">条件に合う場所がありません</p>') :
-  (grouped(list).map(g => `<h2 class="grp">${esc(g.label)}</h2>${g.items.map(card).join('')}`).join('') || '<p class="empty">条件に合う場所がありません</p>')}`;
+  <div id="results">${st.listMode === 'map' ? (list.length ? mapBlock(list.map(s => ({...s, label: s.name})), []) : '<p class="empty">条件に合う場所がありません</p>') :
+  (grouped(list).map(g => `<h2 class="grp">${esc(g.label)}</h2>${g.items.map(card).join('')}`).join('') || '<p class="empty">条件に合う場所がありません</p>')}</div>`;
 }
 
 // ---------- 地図（簡易図） ----------
@@ -457,11 +461,20 @@ $app.addEventListener('click', async e => {
     case 'closesheet': st.sheet = null; render(); break;
   }
 });
+// 検索：入力欄は描き直さず、件数と結果だけを更新する（日本語入力の変換中は更新しない）
+let qTimer = null;
+function updateResults() {
+  const tmp = document.createElement('div'); tmp.innerHTML = viewList();
+  ['results', 'qcount'].forEach(id => { const cur = document.getElementById(id), nw = tmp.querySelector('#' + id); if (cur && nw) cur.innerHTML = nw.innerHTML; });
+  mountMaps();
+}
+function onSearch(el) { st.q = el.value; clearTimeout(qTimer); qTimer = setTimeout(updateResults, 150); }
 $app.addEventListener('input', e => {
-  const k = e.target.dataset.bind; if (!k || k !== 'q') return;
-  st.q = e.target.value; const pos = e.target.selectionStart; render();
-  const box = document.querySelector('[data-bind="q"]'); box.focus(); try { box.setSelectionRange(pos, pos); } catch (er) {}
+  if (e.target.dataset.bind !== 'q') return;
+  if (e.isComposing) return;
+  onSearch(e.target);
 });
+$app.addEventListener('compositionend', e => { if (e.target.dataset.bind === 'q') onSearch(e.target); });
 $app.addEventListener('change', e => {
   const k = e.target.dataset.bind;
   if (k && k !== 'q') {
