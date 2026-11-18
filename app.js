@@ -368,10 +368,17 @@ function shareUrl(l) { return location.origin + location.pathname + '#import=' +
 function shareText(l) {
   return `【京都ゆかりマップ】${l.name}\n${l.ids.map((i, n) => `${n + 1}. ${byId[i] ? byId[i].name : ''}`).join('\n')}\n\n↓ページの「共有されたリストを取り込む」に、このメッセージを丸ごと貼り付けてください\nKM1:${b64e(JSON.stringify({n: l.name, i: l.ids}))}`;
 }
+// 共有メッセージ（リンク「#import=…」または「KM1:…」）からリストを取り込む。同じ内容が取り込み済みならそれを開く
 function importText(t) {
-  const m = t.match(/KM1:([A-Za-z0-9_-]+)/);
+  const m = String(t).match(/(?:KM1:|#import=)([A-Za-z0-9_-]+)/);
   if (!m) return null;
-  try { const o = JSON.parse(b64d(m[1])); const ids = (o.i || []).filter(i => byId[i]); return newList((o.n || '共有リスト') + '（取り込み）', ids); } catch (e) { return null; }
+  try {
+    const o = JSON.parse(b64d(m[1])); const ids = (o.i || []).filter(i => byId[i]);
+    if (!ids.length) return null;
+    const name = (o.n || '共有リスト') + '（取り込み）';
+    const same = db.lists.find(l => l.name === name && l.ids.join() === ids.join());
+    return same || newList(name, ids);
+  } catch (e) { return null; }
 }
 
 // ---------- シート（ダイアログ） ----------
@@ -397,7 +404,7 @@ function viewSheet() {
   } else if (sh.type === 'delete') {
     body = `<h3>このリストを削除しますか？</h3><p>元に戻せません。</p><div class="btns"><button class="btn danger" data-act="delete">削除する</button><button class="btn ghost" data-act="closesheet">やめる</button></div>`;
   } else if (sh.type === 'import') {
-    body = `<h3>共有されたリストを取り込む</h3><p>LINEなどで受け取ったメッセージを丸ごと貼り付けてください。</p><textarea id="importbox" rows="6" placeholder="【京都ゆかりマップ】…KM1:…"></textarea><div class="btns"><button class="btn" data-act="import">取り込む</button></div>${sh.err ? `<p class="err">${esc(sh.err)}</p>` : ''}`;
+    body = `<h3>共有されたリストを取り込む</h3><p>LINEなどで受け取ったメッセージ（リンクを含む）を丸ごと貼り付けてください。ホーム画面のアイコンから使っている場合は、リンクを開くより、この方法が確実です。</p><textarea id="importbox" rows="6" placeholder="【京都ゆかりマップ】…&#10;https://…#import=…"></textarea><div class="btns"><button class="btn" data-act="import">取り込む</button></div>${sh.err ? `<p class="err">${esc(sh.err)}</p>` : ''}`;
   } else if (sh.type === 'share') {
     body = `<h3>共有用テキスト</h3><p>コピーできなかったときは、下の文字を長押しで全部選んでコピーしてください。</p><textarea rows="8" readonly>${esc(sh.text)}</textarea>`;
   }
@@ -455,15 +462,15 @@ $app.addEventListener('click', async e => {
       const l = db.lists.find(x => x.id === st.listId); let text = shareText(l);
       if (MODE === 'web') {
         const url = shareUrl(l), names = l.ids.map(i => byId[i] ? byId[i].name : '').join('・');
-        if (navigator.share) { try { await navigator.share({title: '京都ゆかりマップ：' + l.name, text: `【京都ゆかりマップ】${l.name}\n${names}\n開くとリストを取り込めます`, url}); break; } catch (err) { if (err && err.name === 'AbortError') break; } }
-        text = `【京都ゆかりマップ】${l.name}\n${names}\n↓開くとリストを取り込めます\n${url}`;
+        if (navigator.share) { try { await navigator.share({title: '京都ゆかりマップ：' + l.name, text: `【京都ゆかりマップ】${l.name}\n${names}\n開くとリストを取り込めます（ホーム画面のアプリで使う場合は、このメッセージをコピーして「共有されたリストを取り込む」に貼り付け）`, url}); break; } catch (err) { if (err && err.name === 'AbortError') break; } }
+        text = `【京都ゆかりマップ】${l.name}\n${names}\n↓開くとリストを取り込めます（ホーム画面のアプリで使う場合は、このメッセージをコピーして「共有されたリストを取り込む」に貼り付け）\n${url}`;
       }
       try { await navigator.clipboard.writeText(text); toast('コピーしました。LINEなどに貼り付けて送れます'); }
       catch (err) { st.sheet = {type: 'share', text}; render(); }
       break;
     }
     case 'importsheet': st.sheet = {type: 'import'}; render(); break;
-    case 'import': { const l = importText(document.getElementById('importbox').value); if (l) { st.sheet = null; toast('取り込みました'); go('course', {listId: l.id}); } else { st.sheet = {type: 'import', err: '読み取れませんでした。「KM1:」から始まる部分を含めて貼り付けてください。'}; render(); } break; }
+    case 'import': { const l = importText(document.getElementById('importbox').value); if (l) { st.sheet = null; toast('取り込みました'); go('course', {listId: l.id}); } else { st.sheet = {type: 'import', err: '読み取れませんでした。「https://…#import=」から始まるリンクの部分も含めて、メッセージを丸ごと貼り付けてください。'}; render(); } break; }
     case 'closesheet': st.sheet = null; render(); break;
   }
 });
@@ -493,10 +500,16 @@ $app.addEventListener('change', e => {
 });
 function checkHashImport() {
   const m = location.hash.match(/^#import=([A-Za-z0-9_-]+)/);
-  if (!m) return;
+  if (!m) return false;
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-  const l = importText('KM1:' + m[1]);
-  if (l) { Object.assign(st, {view: 'course', listId: l.id, toast: `「${l.name}」を取り込みました`}); setTimeout(() => { st.toast = ''; render(); }, 2500); }
+  const l = importText('#import=' + m[1]);
+  if (l) { history_.length = 0; Object.assign(st, {view: 'course', listId: l.id, sheet: null, toast: `「${l.name}」を取り込みました`}); setTimeout(() => { st.toast = ''; render(); }, 2500); }
+  return true;
 }
-if (MODE === 'web') checkHashImport();
+if (MODE === 'web') {
+  checkHashImport();
+  // すでに開いているページで共有リンクを開いたとき（ページが読み込み直されない場合）
+  window.addEventListener('hashchange', () => { if (checkHashImport()) { render(); window.scrollTo(0, 0); } });
+  window.addEventListener('pageshow', e => { if (e.persisted && checkHashImport()) render(); });
+}
 render();
