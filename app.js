@@ -54,7 +54,7 @@ function save() { mem = db; try { localStorage.setItem(STORE_KEY, JSON.stringify
 // ---------- 状態 ----------
 const st = {
   view: 'list', spotId: null, planIdx: 0, listId: null,
-  sort: 'era', listMode: 'cards', pos: null, hiddenOnly: false, q: '', genres: [], area: '', era: '', season: '', person: '',
+  sort: 'star', listMode: 'cards', pos: null, hiddenOnly: false, q: '', genres: [], area: '', era: '', season: '', person: '',
   start: 'kyoto', end: 'kyoto', order: 'time', onsenLast: true,
   sheet: null, toast: ''
 };
@@ -111,7 +111,12 @@ function filtered() {
 function grouped(list) {
   const groups = [];
   const push = (label, items) => { if (items.length) groups.push({label, items}); };
-  if (st.sort === 'era') {
+  if (st.sort === 'star') {
+    const order = (a, b) => (AREAS.indexOf(a.area) - AREAS.indexOf(b.area)) || a.kana.localeCompare(b.kana, 'ja');
+    push('★★★ 定番・必見', list.filter(s => s.star === 3).sort(order));
+    push('★★ おすすめ', list.filter(s => s.star === 2).sort(order));
+    push('★ 好きな人向け・穴場', list.filter(s => (s.star || 1) === 1).sort(order));
+  } else if (st.sort === 'era') {
     ERAS.forEach(e => push(e.label, list.filter(s => s.era === e.k).sort((a, b) => a.year - b.year)));
     push('時代なし（グルメ・景色・温泉など）', list.filter(s => !s.era));
   } else if (st.sort === 'person') {
@@ -133,7 +138,7 @@ function card(s) {
   return `<div class="card" data-act="open" data-id="${s.id}">
     <div class="card-main">
       <div class="badges">${s.last ? '<span class="b last">前回行った</span>' : ''}${s.reserve ? '<span class="b reserve">要予約</span>' : ''}${s.hidden ? '<span class="b hid">穴場</span>' : ''}${db.visited.includes(s.id) ? '<span class="b done">行った</span>' : ''}${s.genres.map(g => `<span class="b g">${g}</span>`).join('')}</div>
-      <div class="card-title">${esc(s.name)}</div>
+      <div class="card-title">${esc(s.name)}<span class="stars" aria-label="おすすめ度${s.star || 1}">${'★'.repeat(s.star || 1)}</span></div>
       <div class="card-meta">${st.pos ? `<b class="dist">${km(st.pos, s) < 1 ? Math.round(km(st.pos, s) * 1000) + 'm' : km(st.pos, s).toFixed(1) + 'km'}</b>・` : ''}${esc(s.area)}${s.era ? '・' + esc(ERAS.find(e => e.k === s.era).label) : ''}</div>
       <div class="card-short">${esc(s.short)}</div>
     </div>
@@ -149,7 +154,7 @@ function viewList() {
   <div class="controls">
     <input type="search" data-bind="q" placeholder="名前・人物・よみがな（例：りょうま、紅葉 寺）" value="${esc(st.q)}">
     <div class="row"><label class="lbl">並び替え</label>
-      <div class="seg">${[['era','時代'],['person','人物'],['name','名前'],['area','地域'],['genre','ジャンル'],['near','近い順']].map(([k, l]) => `<button class="${st.sort === k ? 'on' : ''}" data-act="sort" data-k="${k}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['star','おすすめ'],['era','時代'],['person','人物'],['name','名前'],['area','地域'],['genre','ジャンル'],['near','近い順']].map(([k, l]) => `<button class="${st.sort === k ? 'on' : ''}" data-act="sort" data-k="${k}">${l}</button>`).join('')}</div>
     </div>
     <div class="chips">${GENRES.map(g => `<button class="chip ${st.genres.includes(g) ? 'on' : ''}" data-act="genre" data-k="${g}">${g}</button>`).join('')}<button class="chip hidchip ${st.hiddenOnly ? 'on' : ''}" data-act="hiddenonly">穴場だけ</button></div>
     <div class="selects">
@@ -218,6 +223,7 @@ function viewDetail() {
   <article class="detail">
     <div class="badges">${s.last ? '<span class="b last">前回行った</span>' : ''}${s.reserve ? '<span class="b reserve">要予約</span>' : ''}${s.hidden ? '<span class="b hid">穴場</span>' : ''}${s.genres.map(g => `<span class="b g">${g}</span>`).join('')}${s.era ? `<span class="b">${esc(ERAS.find(e => e.k === s.era).label)}</span>` : ''}</div>
     <h1>${esc(s.name)}</h1>
+    <div class="stars big" aria-label="おすすめ度${s.star || 1}">${'★'.repeat(s.star || 1)}${'☆'.repeat(3 - (s.star || 1))}<small>${['', '好きな人向け・穴場', 'おすすめ', '定番・必見'][s.star || 1]}</small></div>
     <div class="kana">${esc(s.kana)}</div>
     <p class="long">${esc(s.long)}</p>
     <dl class="info">
