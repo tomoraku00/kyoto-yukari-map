@@ -3,6 +3,7 @@ const byId = Object.fromEntries(SPOTS.map(s => [s.id, s]));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $app = document.getElementById('app');
 const MODE = window.KM_MODE || 'artifact';
+const APP_VER = '2026-11-18b';
 const useLeaflet = () => MODE === 'web' && typeof L !== 'undefined';
 let pendingMaps = [], liveMaps = [];
 function mapBlock(points, route) {
@@ -275,6 +276,7 @@ function viewLists() {
     <button class="btn" data-act="newlist">＋ 新しいリスト</button>
     <button class="btn ghost" data-act="importsheet">共有されたリストを取り込む</button>
   </div></div>
+  <p class="ver">アプリの版：${APP_VER}</p>
   ${db.lists.length ? db.lists.map(l => `<div class="card" data-act="openlist" data-id="${l.id}"><div class="card-main"><div class="card-title">${esc(l.name)}</div><div class="card-short">${l.ids.length ? l.ids.map(i => byId[i] ? esc(byId[i].name) : '').filter(Boolean).join('・') : 'まだ場所がありません。一覧の「＋」から追加'}</div></div><span class="count-pill">${l.ids.length}</span></div>`).join('') : '<p class="empty">まだリストがありません。<br>一覧で気になる場所の「＋」を押すか、上のボタンで作ってください。</p>'}`;
 }
 const legKey = (a, b) => (a.id || 'here') + '>' + (b.id || 'here');
@@ -370,7 +372,9 @@ function shareText(l) {
 }
 // 共有メッセージ（リンク「#import=…」または「KM1:…」）からリストを取り込む。同じ内容が取り込み済みならそれを開く
 function importText(t) {
-  const m = String(t).match(/(?:KM1:|#import=)([A-Za-z0-9_-]+)/);
+  // 全角の英数字・記号、改行や空白、URLエンコード（%3D）が混ざっても読めるようにそろえる
+  const norm = String(t).replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/%3D/gi, '=').replace(/\s+/g, '');
+  const m = norm.match(/(?:KM1:|#import=)([A-Za-z0-9_-]+)/);
   if (!m) return null;
   try {
     const o = JSON.parse(b64d(m[1])); const ids = (o.i || []).filter(i => byId[i]);
